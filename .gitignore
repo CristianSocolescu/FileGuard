@@ -1,0 +1,5 @@
+.env
+security_logs.db
+__pycache__/
+*.pyc
+to_scan/
