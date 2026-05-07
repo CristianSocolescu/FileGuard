@@ -33,3 +33,17 @@ This project demonstrates basic defensive security concepts such as:
 - Requests
 - python-dotenv
 - VirusTotal API
+
+
+## Features
+
+| Feature | Status |
+|---|---|
+| Magic number detection | ✅ |
+| VirusTotal hash lookup | ✅ |
+| SQLite logging | ✅ |
+| Flask dashboard | ✅ |
+| YARA scanning | ❌ |
+| String & API heuristics | ❌ |
+| PE header analysis | ❌ |
+| Entropy analysis | ❌ |
