@@ -21,16 +21,8 @@
         </thead>
         <tbody>
             {% for log in logs %}
-            <tr class="{{ 'table-danger' if log[4] else 'table-success' }}">
-                <td>{{ log[0] }}</td>
-                <td>{{ log[1] }}</td>
-                <td>{{ 'YES' if log[2] else 'NO' }}</td>
-                <td>{{ 'YES' if log[3] else 'NO' }}</td>
-                <td>{{ log[4] }}</td>
-                <td>{{ log[5] }}</td>
-                <td>{{ log[6] if log[6] else '-' }}</td>
-                <td>{{ log[7] }}</td>
-            </tr>
+            <tr class="{{ 'table-danger' if log[3] else 'table-success' }}">
+                <td>{{ log[1] }}</td> <td>{{ log[2] }}</td> <td>{{ 'YES' if log[3] else 'NO' }}</td> <td>{{ 'YES' if log[4] else 'NO' }}</td> <td>{{ log[5] }}</td> <td>{{ log[6] }}</td> <td>{{ log[7] if log[7] else '-' }}</td> <td>{{ log[8] }}</td> </tr>
             {% endfor %}
         </tbody>
     </table>

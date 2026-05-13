@@ -3,3 +3,4 @@ security_logs.db
 __pycache__/
 *.pyc
 to_scan/
+yara_rules_repo/

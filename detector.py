@@ -2,18 +2,52 @@ import os
 import hashlib
 import json
 from datetime import datetime
+import yara
 
 from scanner import identify_file
 from database import save_scan_result
 from virustotal_check import check_hash_virustotal
 
 
+def load_yara_rules():
+    # Target folders based on high-fidelity Yara-Rules repository categories
+    target_folders = ['malware', 'maldocs', 'webshells', 'cve_rules']
+    repo_path = './yara_rules_repo'
+    
+    valid_filepaths = {}
+
+    # Iterate through selected directories and validate each rule file
+    for folder in target_folders:
+        folder_path = os.path.join(repo_path, folder)
+        
+        if not os.path.exists(folder_path):
+            continue
+
+        for filename in os.listdir(folder_path):
+            if filename.endswith('.yar') or filename.endswith('.yara'):
+                file_path = os.path.join(folder_path, filename)
+                
+                try:
+                    yara.compile(filepath=file_path)
+                    valid_filepaths[filename] = file_path
+                except yara.Error:
+                    pass
+    if valid_filepaths:
+        try:
+            return yara.compile(filepaths=valid_filepaths)
+        except Exception:
+            return None
+    return None
+
+
+yara_engine = load_yara_rules()
+
 WAZUH_LOG_FILE = "/var/log/file-scanner/alerts.json"
 
 
 def write_wazuh_event(filename, filepath, actual_type, file_extension,
                       is_suspicious, file_hash, vt_found,
-                      vt_malicious, vt_suspicious, vt_error):
+                      vt_malicious, vt_suspicious, vt_error, yara_match="none"):
     event = {
         "source": "file_type_scanner",
         "scan_type": "file_scan",
@@ -28,7 +62,8 @@ def write_wazuh_event(filename, filepath, actual_type, file_extension,
         "vt_found": str(vt_found).lower(),
         "vt_malicious": str(vt_malicious),
         "vt_suspicious": str(vt_suspicious),
-        "vt_error": str(vt_error) if vt_error else "null"
+        "vt_error": str(vt_error) if vt_error else "null",
+        "yara_match": str(yara_match)
     }
 
     with open(WAZUH_LOG_FILE, "a") as log_file:
@@ -78,33 +113,46 @@ def analyze_directory(directory_path):
         if vt_malicious > 0 or vt_suspicious > 0:
             is_suspicious = True
 
-        save_scan_result(
-            filename,
-            actual_type,
-            is_suspicious,
-            vt_found,
-            vt_malicious,
-            vt_suspicious,
-            vt_error
-        )
 
-        write_wazuh_event(
-            filename,
-            file_path,
-            actual_type,
-            file_extension,
-            is_suspicious,
-            file_hash,
-            vt_found,
-            vt_malicious,
-            vt_suspicious,
-            vt_error
-        )
+        yara_match_name = "none"    
+        if yara_engine:
+            # Perform static analysis using the compiled YARA engine
+            matches = yara_engine.match(file_path)
+            
+            if matches:
+                # Extract the name of the first triggered rule
+                yara_match_name = matches[0].rule
+                # Flag the file as suspicious for further processing
+                is_suspicious = True
 
-        report.append({
-            "filename": filename,
-            "detected_type": actual_type,
-            "suspicious": is_suspicious,
-        })
+            save_scan_result(
+                filename,
+                actual_type,
+                is_suspicious,
+                vt_found,
+                vt_malicious,
+                vt_suspicious,
+                vt_error
+            )
+
+            write_wazuh_event(
+                filename,
+                file_path,
+                actual_type,
+                file_extension,
+                is_suspicious,
+                file_hash,
+                vt_found,
+                vt_malicious,
+                vt_suspicious,
+                vt_error,
+                yara_match=yara_match_name
+            )
+
+            report.append({
+                "filename": filename,
+                "detected_type": actual_type,
+                "suspicious": is_suspicious,
+            })
 
     return report

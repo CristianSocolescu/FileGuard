@@ -11,6 +11,7 @@ This project demonstrates essential defensive security concepts, including:
 - Suspicious file detection and alerting.
 - Local logging and dashboard-based alert review.
 - Threat intelligence enrichment using the VirusTotal API.
+- Static Malware Analysis using YARA rules.
 - **SIEM Integration:** Forwarding real-time JSON events to a security monitoring platform.
 
 ## Key Features & Roadmap
@@ -22,7 +23,7 @@ This project demonstrates essential defensive security concepts, including:
 | **SQLite Logging** | ✅ | Maintains a persistent local record of all scans. |
 | **Flask Dashboard** | ✅ | Simple UI to review historical scan data. |
 | **Wazuh SIEM Integration** | ✅ | Generates JSONL logs and custom alerting rules. |
-| YARA Scanning | ❌ | Planned: Pattern matching for malware detection. |
+| **YARA Scanning** | ✅ | Pattern matching for malware detection using community rules. |
 | String & API Heuristics | ❌ | Planned: Deep analysis of file contents. |
 | PE Header Analysis | ❌ | Planned: Extracting metadata from executables. |
 
@@ -32,6 +33,7 @@ This project demonstrates essential defensive security concepts, including:
 - **SQLite** (Local Database)
 - **Wazuh SIEM** (Real-time Alerting Engine)
 - **VirusTotal API** (Threat Intelligence)
+- **YARA** (Static Malware Analysis Engine)
 
 ---
 
@@ -48,17 +50,37 @@ This project demonstrates essential defensive security concepts, including:
    pip install -r requirements.txt
    ```
 
-3. **Configure Environment Variables:**
+3. **Download YARA Rules:**
+   To enable the static malware analysis engine, clone the official community YARA rules directly into the project root:
+   ```bash
+   git clone [https://github.com/Yara-Rules/rules.git](https://github.com/Yara-Rules/rules.git) yara_rules_repo
+   ```
+
+4. **Configure Environment Variables:**
    Create a `.env` file in the root directory and add your VirusTotal API key:
    ```env
    VT_API_KEY=your_virustotal_api_key_here
    ```
 
-4. **Run the Application:**
+5. **Run the Application:**
    ```bash
    python3 app.py
    ```
    *Access the dashboard at `http://127.0.0.1:5000/` to trigger the directory scan.*
+
+---
+
+## Adversary Emulation & Testing
+
+To safely test the YARA detection engine and the Wazuh integration without using real malware (Live Malware), this project includes an Adversary Emulation script.
+
+Run the following command to generate a harmless executable containing Advanced Persistent Threat (APT) string signatures (specifically, the Codoso PlugX trojan):
+
+```bash
+python3 scripts/generate_mock_malware.py
+```
+
+This script will create a `fake_plugx.exe` file inside the `to_scan` directory. When FileGuard scans this directory, YARA will correctly identify the malicious signatures and immediately trigger a **Level 12 Critical Alert** in the Wazuh dashboard, proving the detection pipeline is fully operational.
 
 ---
 
@@ -101,8 +123,19 @@ To trigger alerts on the Wazuh Dashboard, add these custom rules to your `/var/o
     <field name="vt_malicious" negate="yes">^0$</field>
     <description>FileGuard: VirusTotal detected malicious file hash: $(filename)</description>
   </rule>
+
+  <rule id="100103" level="12">
+    <if_sid>100100</if_sid>
+    <field name="yara_match" negate="yes">^none$</field>
+    <description>FileGuard: YARA rule matched! Signature: $(yara_match) in file: $(filename)</description>
+  </rule>
 </group>
 ```
 </details>
 
 *Note: Ensure the target log directory (`/var/log/file-scanner/`) has the correct permissions (`755`) so the `wazuh` user can read the generated `alerts.json` file.*
+
+---
+
+## Credits & Acknowledgements
+* **YARA Rules**: The static malware analysis engine utilizes the excellent community-driven [Yara-Rules repository](https://github.com/Yara-Rules/rules). We use their `malware`, `maldocs`, `webshells`, and `cve_rules` datasets to ensure high-fidelity threat detection.
