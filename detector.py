@@ -3,7 +3,8 @@ import hashlib
 import json
 from datetime import datetime
 import yara
-
+import socket
+from dotenv import load_dotenv
 from scanner import identify_file
 from database import save_scan_result
 from virustotal_check import check_hash_virustotal
@@ -43,13 +44,15 @@ def load_yara_rules():
 yara_engine = load_yara_rules()
 
 WAZUH_LOG_FILE = "/var/log/file-scanner/alerts.json"
-
-
+load_dotenv()
+WAZUH_SERVER_IP = os.getenv("WAZUH_SERVER_IP")
+WAZUH_PORT = int(os.getenv("WAZUH_PORT", 514))
 def write_wazuh_event(filename, filepath, actual_type, file_extension,
                       is_suspicious, file_hash, vt_found,
                       vt_malicious, vt_suspicious, vt_error, yara_match="none"):
     event = {
         "source": "file_type_scanner",
+        "hostname": socket.gethostname(), 
         "scan_type": "file_scan",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "filename": filename,
@@ -57,7 +60,6 @@ def write_wazuh_event(filename, filepath, actual_type, file_extension,
         "detected_type": actual_type,
         "extension": file_extension,
         "sha256": file_hash,
-        # added str()
         "is_suspicious": str(is_suspicious).lower(), 
         "vt_found": str(vt_found).lower(),
         "vt_malicious": str(vt_malicious),
@@ -65,6 +67,25 @@ def write_wazuh_event(filename, filepath, actual_type, file_extension,
         "vt_error": str(vt_error) if vt_error else "null",
         "yara_match": str(yara_match)
     }
+
+    # Send over the network to Wazuh via UDP
+    if WAZUH_SERVER_IP:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Encode the JSON message and send it to the IP and port specified in the .env file
+            sock.sendto(json.dumps(event).encode('utf-8'), (WAZUH_SERVER_IP, WAZUH_PORT))
+            print(f"[NET] Log successfully sent to Wazuh at {WAZUH_SERVER_IP}:{WAZUH_PORT}")
+        except Exception as e:
+            print(f"[ERROR] Could not send the log over the network: {e}")
+    else:
+        print("[ERROR] WAZUH_SERVER_IP not found in the .env file!")
+
+    # Keep the local save too
+    try:
+        with open(WAZUH_LOG_FILE, "a") as log_file:
+            log_file.write(json.dumps(event) + "\n")
+    except Exception as e:
+        print(f"[WARNING] Could not write to the local file: {e}")
 
     with open(WAZUH_LOG_FILE, "a") as log_file:
         log_file.write(json.dumps(event) + "\n")
