@@ -1,6 +1,6 @@
-# FileGuard: Security Scanner & SIEM Integrator
+# FileGuard: Security Scanner & Distributed SIEM Integrator
 
-FileGuard is a Python-based file security scanner that detects suspicious files by comparing file extensions with actual file signatures (Magic Numbers). The project logs scan results in a local SQLite database, provides a simple Flask dashboard for reviewing detected files, and natively integrates with **Wazuh SIEM** for real-time threat alerting.
+FileGuard is a Python-based file security scanner that detects suspicious files by comparing file extensions with actual file signatures (Magic Numbers). The project logs scan results locally, provides a simple Flask dashboard for reviewing detected files, and natively integrates with a **Docker-hosted Wazuh SIEM** for real-time, cross-network threat alerting.
 
 ## Project Purpose
 
@@ -9,10 +9,9 @@ Attackers frequently disguise executable or malicious files by assigning them mi
 This project demonstrates essential defensive security concepts, including:
 - File inspection and signature validation.
 - Suspicious file detection and alerting.
-- Local logging and dashboard-based alert review.
 - Threat intelligence enrichment using the VirusTotal API.
 - Static Malware Analysis using YARA rules.
-- **SIEM Integration:** Forwarding real-time JSON events to a security monitoring platform.
+- Distributed SIEM Architecture: Running the SIEM Manager in a Docker container and streaming real-time JSON events over the network via UDP sockets, allowing the scanner and the monitoring platform to exist on separate machines.
 
 ## Key Features & Roadmap
 
@@ -20,20 +19,19 @@ This project demonstrates essential defensive security concepts, including:
 |---|:---:|---|
 | **Magic Number Detection** | ✅ | Detects true file types ignoring spoofed extensions. |
 | **VirusTotal Hash Lookup** | ✅ | Checks file SHA-256 hashes against VT databases. |
-| **SQLite Logging** | ✅ | Maintains a persistent local record of all scans. |
-| **Flask Dashboard** | ✅ | Simple UI to review historical scan data. |
-| **Wazuh SIEM Integration** | ✅ | Generates JSONL logs and custom alerting rules. |
+| **Wazuh SIEM in Docker** | ✅ | Centralized logging and alerting environment using Docker Compose. |
+| **Network Log Streaming** | ✅ | Forwards alerts to the remote SIEM via UDP Network Sockets. |
 | **YARA Scanning** | ✅ | Pattern matching for malware detection using community rules. |
-| String & API Heuristics | ❌ | Planned: Deep analysis of file contents. |
+| String & API Heuristics | ❌ | Planned: Deep analysis of file contents & Network IOC extraction. |
 | PE Header Analysis | ❌ | Planned: Extracting metadata from executables. |
 
 ## Technologies Used
-- **Python 3** (Core logic, Hash calculation, File reading)
-- **Flask** (Web Dashboard)
-- **SQLite** (Local Database)
-- **Wazuh SIEM** (Real-time Alerting Engine)
-- **VirusTotal API** (Threat Intelligence)
+- **Python 3** 
+- **Docker & Docker Compose** (SIEM Manager Hosting)
+- **Wazuh SIEM** 
+- **VirusTotal API** 
 - **YARA** (Static Malware Analysis Engine)
+- **Flask & SQLite** (Local Dashboard & DB)
 
 ---
 
@@ -57,22 +55,23 @@ This project demonstrates essential defensive security concepts, including:
    ```
 
 4. **Configure Environment Variables:**
-   Create a `.env` file in the root directory and add your VirusTotal API key:
+   Create a `.env` file in the root directory. Add your VirusTotal API key and configure the target IP of your Docker-hosted Wazuh server:
    ```env
    VT_API_KEY=your_virustotal_api_key_here
+   WAZUH_SERVER_IP=192.168.x.x  # The IP of the machine running Wazuh via Docker
+   WAZUH_PORT=514               # UDP Port for network logging
    ```
 
 5. **Run the Application:**
    ```bash
    python3 app.py
    ```
-   *Access the dashboard at `http://127.0.0.1:5000/` to trigger the directory scan.*
 
 ---
 
 ## Adversary Emulation & Testing
 
-To safely test the YARA detection engine and the Wazuh integration without using real malware (Live Malware), this project includes an Adversary Emulation script.
+To safely test the YARA detection engine and the network integration without using real malware, this project includes an Adversary Emulation script.
 
 Run the following command to generate a harmless executable containing Advanced Persistent Threat (APT) string signatures (specifically, the Codoso PlugX trojan):
 
@@ -80,26 +79,23 @@ Run the following command to generate a harmless executable containing Advanced 
 python3 scripts/generate_mock_malware.py
 ```
 
-This script will create a `fake_plugx.exe` file inside the `to_scan` directory. When FileGuard scans this directory, YARA will correctly identify the malicious signatures and immediately trigger a **Level 12 Critical Alert** in the Wazuh dashboard, proving the detection pipeline is fully operational.
+When FileGuard scans the `to_scan` directory, YARA will identify the signatures and instantly stream a **Level 12 Critical Alert** over the network to the Wazuh dashboard, proving the UDP pipeline and detection engine are fully operational.
 
 ---
 
-## Wazuh SIEM Integration Guide
+## Distributed Wazuh SIEM Integration Guide
 
-FileGuard is designed to work seamlessly with Wazuh. It outputs perfectly formatted JSON Lines (JSONL) that Wazuh decoders can instantly parse.
+FileGuard is designed as a distributed agent. It utilizes Python `socket` libraries to stream JSON files over the network into a Wazuh Manager hosted in Docker.
 
-### 1. Configure Localfile Collection
-Add the following block to your Wazuh Manager/Agent `ossec.conf` to monitor the FileGuard log output:
-
-```xml
-<localfile>
-  <location>/var/log/file-scanner/alerts.json</location>
-  <log_format>json</log_format>
-</localfile>
+### 1. Docker Compose Configuration (Manager Side)
+Ensure your Wazuh Manager is running via Docker and has the syslog UDP port exposed. In your `docker-compose.yml`, verify the ports section includes:
+```yaml
+ports:
+  - "514:514/udp"
 ```
 
 ### 2. Add Custom Detection Rules
-To trigger alerts on the Wazuh Dashboard, add these custom rules to your `/var/ossec/etc/rules/local_rules.xml` file:
+To trigger alerts on the Wazuh Dashboard, add these custom rules to your Wazuh Manager's `local_rules.xml` file (`/var/ossec/etc/rules/local_rules.xml`):
 
 <details>
 <summary><strong>Click to view XML Rules</strong></summary>
@@ -109,7 +105,7 @@ To trigger alerts on the Wazuh Dashboard, add these custom rules to your `/var/o
   <rule id="100100" level="3">
     <decoded_as>json</decoded_as>
     <field name="source">file_type_scanner</field>
-    <description>FileGuard: Custom file scanner event received</description>
+    <description>FileGuard: Custom file scanner event received from $(hostname)</description>
   </rule>
 
   <rule id="100101" level="8">
@@ -133,9 +129,9 @@ To trigger alerts on the Wazuh Dashboard, add these custom rules to your `/var/o
 ```
 </details>
 
-*Note: Ensure the target log directory (`/var/log/file-scanner/`) has the correct permissions (`755`) so the `wazuh` user can read the generated `alerts.json` file.*
+*Note: Ensure your host machine's firewall (e.g., Windows Defender Firewall) allows inbound UDP traffic on port 514 from the IP address of the machine running the FileGuard scanner.*
 
 ---
 
 ## Credits & Acknowledgements
-* **YARA Rules**: The static malware analysis engine utilizes the excellent community-driven [Yara-Rules repository](https://github.com/Yara-Rules/rules). We use their `malware`, `maldocs`, `webshells`, and `cve_rules` datasets to ensure high-fidelity threat detection.
+* **YARA Rules**: The static malware analysis engine utilizes the community-driven [Yara-Rules repository](https://github.com/Yara-Rules/rules). We use their `malware`, `maldocs`, `webshells`, and `cve_rules` datasets to ensure threat detection.

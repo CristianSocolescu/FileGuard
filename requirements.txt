@@ -1,0 +1,5 @@
+Flask
+yara-python
+requests
+python-dotenv
+pefile
